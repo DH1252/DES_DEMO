@@ -6,7 +6,7 @@ from threading import Thread
 import unittest
 
 from des import E, FP, IP, P, PC1, PC2, S_BOXES, SHIFTS, trace_block
-from des_demo import DemoHandler, EXAMPLE_KEY, STAGES, explain_step, format_result, parse_block, parse_key
+from des_demo import DemoHandler, EXAMPLE_KEY, STAGES, build_trace, explain_step, format_result, parse_block, parse_key
 from des_reference import describe_table
 
 
@@ -58,19 +58,21 @@ class DESDemoTextTests(unittest.TestCase):
         enc = trace_block(0x0123456789ABCDEF, key)
         ciphertext = format_result(enc.output, decrypt=False)
         start = explain_step(enc, 0, ciphertext)
-        self.assertIn("F0CCAAF556678F", start[1][1])
+        self.assertIn("IP", start[1][0])
+        self.assertIn("L00", start[2][0])
+        self.assertIn("F0CCAAF556678F", start[3][1])
         round_one = explain_step(enc, 1, ciphertext)
         self.assertEqual(len(round_one), 6)
         self.assertIn("1B02EFFC7072", round_one[0][1])
-        self.assertIn("(011000) untuk membaca tabel S1", round_one[3][1])
-        self.assertIn("(00) untuk memilih baris 0", round_one[3][1])
-        self.assertIn("(1100) menentukan kolom 12 (C dalam heksadesimal)", round_one[3][1])
+        self.assertIn("Untuk S1, baca 011000", round_one[3][1])
+        self.assertIn("(00) memilih baris 0", round_one[3][1])
+        self.assertIn("(1100) memilih kolom 12 (C dalam heksadesimal)", round_one[3][1])
         self.assertIn("0101 dalam biner", round_one[3][1])
         self.assertIn("EF4A6544", round_one[-1][1])
         self.assertIn(ciphertext, explain_step(enc, len(STAGES) - 1, ciphertext)[2][1])
 
         dec = trace_block(enc.output, key, decrypt=True)
-        self.assertIn("K16 hingga K01", explain_step(dec, 0, "")[1][1])
+        self.assertIn("K16 hingga K01", explain_step(dec, 0, "")[3][1])
         self.assertIn("K16", explain_step(dec, 1, "")[0][0])
 
 
@@ -115,6 +117,46 @@ class DESReferenceTests(unittest.TestCase):
                 self.assertIn(f"= {output} biner", example)
 
 
+class DESOperationTests(unittest.TestCase):
+    def test_animation_values_match_each_operation(self):
+        key = parse_key(EXAMPLE_KEY)
+        block = parse_block("Hi", decrypt=False)
+        encrypted = build_trace(block, key, decrypt=False, source="Hi")
+        ciphertext = encrypted["output"]
+        decrypted = build_trace(parse_block(ciphertext, decrypt=True), key, decrypt=True, source=ciphertext)
+
+        for result in (encrypted, decrypted):
+            first, key_schedule, *rounds, last = result["groups"]
+            self.assertEqual([group["stage"] for group in rounds], list(range(1, 17)))
+            self.assertEqual(len(key_schedule["operations"]), 35)
+            subkeys = [op["outputs"][0]["label"] for op in key_schedule["operations"] if op.get("table") == "PC-2"]
+            self.assertEqual(subkeys, [f"K{k:02}" for k in range(1, 17)])
+            for group in rounds:
+                self.assertEqual([op["kind"] for op in group["operations"]],
+                                 ["mapping", "xor", "sboxes", "mapping", "xor", "mapping"])
+            for group in (first, key_schedule, *rounds, last):
+                for op in group["operations"]:
+                    with self.subTest(group=group["title"], operation=op["title"]):
+                        inputs = [item.get("binary", "") for item in op["inputs"]]
+                        output = "".join(item.get("binary", "") for item in op["outputs"])
+                        if op["kind"] == "mapping":
+                            source = "".join(inputs)
+                            self.assertEqual("".join(source[i - 1] if i else "0" for i in op["positions"]), output)
+                        elif op["kind"] == "xor":
+                            self.assertEqual("".join(str(int(a != b)) for a, b in zip(*inputs, strict=True)), output)
+                        elif op["kind"] == "sboxes":
+                            self.assertEqual("".join(row["input"] for row in op["lookups"]), inputs[0])
+                            self.assertEqual("".join(row["output"] for row in op["lookups"]), output)
+                            for box, row in zip(S_BOXES, op["lookups"], strict=True):
+                                self.assertEqual(box[row["row"]][int(row["column"], 16)], int(row["output"], 2))
+
+        self.assertEqual(encrypted["groups"][0]["operations"][1]["positions"], (*range(1, 17), *(0,) * 48))
+        self.assertEqual(decrypted["groups"][0]["operations"][0]["inputs"][0]["text"], ciphertext)
+        self.assertEqual(decrypted["groups"][-1]["operations"][-1]["outputs"][0]["text"], "Hi")
+        self.assertEqual([group["operations"][1]["inputs"][1]["label"] for group in decrypted["groups"][2:-1]],
+                         [f"K{k:02}" for k in range(16, 0, -1)])
+
+
 class DESWebTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -156,6 +198,7 @@ class DESWebTests(unittest.TestCase):
         self.assertEqual(status, 200)
         example = json.loads(body)
         self.assertEqual([stage["label"] for stage in example["steps"]], list(STAGES))
+        self.assertEqual(sum(len(group["operations"]) for group in example["groups"]), 137)
         self.assertIn("Keluaran (heks)", example["steps"][0]["examples"]["IP"])
         self.assertEqual(example["steps"][0]["title"], "Permutasi awal")
         self.assertIn("58 50 42", example["tables"]["IP"]["grid"])

@@ -6,36 +6,28 @@ const block = $("#block");
 const key = $("#key");
 const output = $("#output");
 const tablePicker = $("#table-picker");
+const speed = $("#speed");
+const speedSlider = $("#speed-slider");
 const pad = (n) => String(n).padStart(2, "0");
 const stages = ["IP", ...Array.from({length: 16}, (_, i) => pad(i + 1)), "FP"];
-const tabs = [...document.querySelectorAll('[role="tab"]')];
+const chain = $("#operation-chain");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 let trace = null;
 let tables = {};
-let step = 0;
+let operations = [];
+let operationIndex = 0;
+let renderedStage = null;
 let binary = false;
-let timer = null;
 let version = 0;
-let tableGroup = null;
-
-const layouts = {
-  IP: {
-    nodes: [[280, 42, 220], [280, 123, 220], [148, 231, 150, "teal"], [412, 231, 150, "blue"]],
-    wires: [["M280 62 V103"], ["M280 143 V179 H148 V211", "teal"], ["M280 179 H412 V211", "blue"]],
-  },
-  round: {
-    nodes: [[125, 38, 154, "teal"], [407, 38, 154, "blue"], [245, 113, 137, "gold"],
-      [407, 113, 154, "blue"], [125, 231, 154, "teal"], [407, 231, 154, "blue"]],
-    wires: [["M125 58 V151", "teal"], ["M407 58 V93", "blue"], ["M407 73 H534 V231 H484", "blue"],
-      ["M313.5 113 H330", "gold"], ["M407 133 V169 H143", "teal"], ["M125 187 V211", "teal"]],
-  },
-  FP: {
-    nodes: [[145, 34, 152, "blue"], [415, 34, 152, "teal"], [280, 105, 200],
-      [280, 175, 220], [280, 243, 220, "teal"]],
-    wires: [["M145 54 V105 H180", "blue"], ["M415 54 V105 H380", "teal"],
-      ["M280 125 V155"], ["M280 195 V223", "teal"]],
-  },
-};
+let lastTable = null;
+let activeButton = null;
+let frameId = null;
+let lastFrame = null;
+let elapsed = 0;
+let playbackRate = 1;
+let sequence = false;
+let paintFrame = null;
 
 function element(tag, text, className) {
   const item = document.createElement(tag);
@@ -44,51 +36,150 @@ function element(tag, text, className) {
   return item;
 }
 
-function svg(tag, attributes, text) {
-  const item = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [name, value] of Object.entries(attributes)) item.setAttribute(name, value);
-  if (text !== undefined) item.textContent = text;
-  return item;
+function showValue(value) {
+  if (Object.hasOwn(value, "text")) return JSON.stringify(value.text);
+  if (!value.binary) return "0 byte";
+  return BigInt(`0b${value.binary}`).toString(16).toUpperCase().padStart(value.binary.length / 4, "0");
 }
 
-function draw(stage) {
-  const signals = $("#signals");
-  signals.replaceChildren();
-  $("#flow-caption").textContent = stage ? stage.title : "Alur data DES";
-  if (!stage) {
-    signals.append(svg("text", {x: 280, y: 140, "text-anchor": "middle", class: "diagram-empty"}, "Klik Jalankan untuk melihat alur data."));
-    return;
+function buildDiagram(groups) {
+  operations = [];
+  activeButton = null;
+  chain.replaceChildren();
+  chain.parentElement.scrollTop = 0;
+  $("#empty-chain").hidden = groups.length > 0;
+  for (const group of groups) {
+    const section = element("li", undefined, "operation-section");
+    const list = element("ol", undefined, "operation-list");
+    section.append(element("h4", group.title), list);
+    for (const operation of group.operations) {
+      const index = operations.length;
+      const node = element("li", undefined, "operation-node");
+      const button = element("button", undefined, "node-button");
+      button.type = "button";
+      const result = operation.outputs.map((value) => `${value.label}: ${showValue(value)}`).join(" / ");
+      button.append(element("span", pad(index + 1), "node-index"), element("span", operation.title),
+        element("code", result, "node-result"));
+      button.addEventListener("click", () => goTo(index));
+      node.append(button);
+      list.append(node);
+      operations.push({...operation, group: group.title, stage: group.stage, button});
+    }
+    chain.append(section);
   }
-  const layout = layouts[stage.label] ?? layouts.round;
-  for (const [d, lane = ""] of layout.wires) signals.append(svg("path", {d, class: `wire ${lane}`}));
-  layout.nodes.forEach(([x, y, width, lane = ""], i) => {
-    const [label, value] = stage.flow[i];
-    const node = svg("g", {class: lane});
-    node.append(
-      svg("rect", {x: x - width / 2, y: y - 20, width, height: 40, rx: 4, class: "node-box"}),
-      svg("rect", {x: x - width / 2, y: y - 16, width: 3, height: 32, rx: 1, class: "node-mark"}),
-      svg("text", {x, y: y - 3, "text-anchor": "middle", class: "node-label"}, label),
-      svg("text", {x, y: y + 13, "text-anchor": "middle", class: "node-value"}, value),
-    );
-    signals.append(node);
-  });
-  if (layout === layouts.round) {
-    signals.append(svg("circle", {cx: 125, cy: 169, r: 18, class: "xor"}),
-      svg("text", {x: 125, y: 173, "text-anchor": "middle", class: "node-label teal"}, "XOR"));
+}
+
+function drawOperation(operation) {
+  const view = $("#operation-view");
+  const note = $("#operation-annotation");
+  const progress = $("#operation-progress");
+  view.replaceChildren();
+  note.textContent = "";
+  progress.value = 0;
+  progress.hidden = !operation;
+  if (!operation) return null;
+
+  const inputText = [];
+  const bitRows = (values, groupSize, isOutput = false) => {
+    return values.map((value) => {
+      const row = element("div", undefined, "operand");
+      const hasBits = !!value.binary;
+      const content = element("code", undefined, hasBits ? "bits" : "text-value");
+      const cells = [];
+      if (hasBits) {
+        content.setAttribute("aria-label", value.binary.split("").join(" "));
+        for (let offset = 0; offset < value.binary.length; offset += groupSize) {
+          const group = element("span", undefined, "bit-group");
+          for (const bit of value.binary.slice(offset, offset + groupSize)) {
+            const cell = element("span", bit, "bit");
+            cells.push(cell);
+            group.append(cell);
+          }
+          content.append(group);
+        }
+      } else if (isOutput && value.text !== undefined) {
+        for (const char of showValue(value)) {
+          const cell = element("span", char);
+          cells.push(cell);
+          content.append(cell);
+        }
+      } else {
+        content.textContent = showValue(value);
+        if (!isOutput) inputText.push(content);
+      }
+      row.append(element("div", value.label, "operand-label"), content);
+      view.append(row);
+      return cells;
+    });
+  };
+
+  const kind = operation.kind;
+  const inputRows = bitRows(operation.inputs, kind === "sboxes" ? 6 : operation.inputs.some((value) => value.binary?.length === 28) ? 4 : 8);
+  const input = inputRows.flat();
+  const connector = element("div", kind === "xor" ? "XOR" : "\u2193", "operation-arrow");
+  connector.setAttribute("aria-hidden", "true");
+  view.append(connector);
+  const lookupRows = (operation.lookups ?? []).map(({input, row, column, output}, i) =>
+    element("div", `S${i + 1}: ${input} \u2192 [${row}, ${column}] \u2192 ${output}`, "lookup"));
+  if (lookupRows.length) {
+    const grid = element("div", undefined, "lookup-grid");
+    grid.append(...lookupRows);
+    view.append(grid);
   }
+  const result = bitRows(operation.outputs, kind === "sboxes" || operation.outputs.some((value) => value.binary?.length === 28) ? 4 : 8, true).flat();
+  const frames = kind === "sboxes" ? lookupRows.length : Math.max(result.length, 1);
+  let last = -2;
+
+  return (fraction) => {
+    progress.value = fraction;
+    const i = fraction >= 1 ? frames : Math.floor(Math.max(0, fraction) * frames);
+    if (i === last) return;
+    last = i;
+    const finished = i === frames;
+    const outputIndex = kind === "sboxes" ? i * 4 : i;
+    let highlighted = [];
+    let caption = "";
+    if (!finished && kind === "mapping" && operation.positions.length) {
+      const source = operation.positions[i];
+      highlighted = source ? [input[source - 1]] : [];
+      caption = source ? `Bit masukan ke-${source} \u2192 bit keluaran ke-${i + 1}` : `Isi bit keluaran ke-${i + 1} dengan 0`;
+    } else if (!finished && kind === "xor") {
+      highlighted = inputRows.map((row) => row[i]);
+      caption = `Bit ${i + 1}: ${highlighted[0].textContent} XOR ${highlighted[1].textContent} = ${result[i].textContent}`;
+    } else if (!finished && kind === "sboxes") {
+      highlighted = input.slice(i * 6, i * 6 + 6);
+      const lookup = operation.lookups[i];
+      caption = `S${i + 1}: baris ${lookup.row}, kolom ${lookup.column} (heks)`;
+    } else if (!finished && kind === "conversion") {
+      highlighted = input;
+      caption = `Masukan \u2192 ${operation.outputs[0].label}`;
+    }
+    for (const node of inputText) node.classList.toggle("is-source", !finished);
+    for (const cell of input) cell.classList.toggle("is-source", highlighted.includes(cell));
+    result.forEach((cell, n) => {
+      cell.classList.toggle("is-waiting", !finished && n >= outputIndex + (kind === "sboxes" ? 4 : 1));
+      cell.classList.toggle("is-destination", !finished && n >= outputIndex && n < outputIndex + (kind === "sboxes" ? 4 : 1));
+    });
+    lookupRows.forEach((node, n) => {
+      node.classList.toggle("is-source", !finished && n === i);
+      node.classList.toggle("is-waiting", !finished && n > i);
+    });
+    note.textContent = caption;
+  };
 }
 
 const stageButtons = stages.map((label, i) => {
   const button = element("button", label);
   button.type = "button";
   button.setAttribute("aria-label", label === "IP" ? "Permutasi awal (IP)" : label === "FP" ? "Permutasi akhir (FP)" : `Putaran ${label}`);
-  button.addEventListener("click", () => goTo(i));
+  button.addEventListener("click", () => goTo(operations.findIndex((operation) => operation.stage === i)));
   $("#timeline").append(button);
   return button;
 });
 
-const activeStage = () => trace?.steps[step];
-const bitString = (value) => value.match(/.{8}/g).join(" ");
+const activeOperation = () => operations[operationIndex];
+const activeStage = () => trace?.steps[activeOperation()?.stage];
+const bitString = (value) => value.match(/.{1,8}/g)?.join(" ") ?? "";
 
 function renderValues() {
   const list = $("#value-list");
@@ -107,12 +198,7 @@ function renderValues() {
 const tableLabel = (name, title) => name === "Shifts" ? title : `${name} | ${title}`;
 
 function renderTable() {
-  const stage = activeStage();
-  const group = stage?.label === "FP" ? "FP" : !stage || stage.label === "IP" ? "IP" : "E";
-  if (tableGroup !== group && Object.hasOwn(tables, group)) {
-    tableGroup = group;
-    tablePicker.value = group;
-  }
+  const operation = activeOperation();
   const name = tablePicker.value;
   const table = tables[name];
   const container = $("#table-content");
@@ -122,41 +208,58 @@ function renderTable() {
     container.replaceChildren(element("p", "Klik Jalankan untuk melihat tabel acuan DES."));
     return;
   }
+  const stage = operation?.reference_stage ? trace.steps[operation.reference_stage] : activeStage();
   container.replaceChildren(element("h4", tableLabel(name, table.title)), element("p", table.intro),
     element("pre", table.grid), element("h4", "Contoh perhitungan"),
     element("pre", stage?.examples[name] ?? "Klik Jalankan untuk melihat contoh perhitungan."));
 }
 
 function render() {
+  const operation = activeOperation();
   const stage = activeStage();
   stageButtons.forEach((button, i) => {
-    button.disabled = !stage;
-    button.dataset.visited = String(!!stage && i < step);
-    if (stage && i === step) button.setAttribute("aria-current", "step");
+    button.disabled = !operation;
+    button.dataset.visited = String(!!operation && i < operation.stage);
+    if (operation && i === operation.stage) button.setAttribute("aria-current", "step");
     else button.removeAttribute("aria-current");
   });
-  $("#step-count").textContent = stage ? `TAHAP ${pad(step + 1)} / ${stages.length}` : "BELUM DIJALANKAN";
-  $("#phase").textContent = !stage ? "DES" : stage.label === "IP" ? "MASUKAN / IP" :
-    stage.label === "FP" ? "KELUARAN / FP" : `PUTARAN ${stage.label}`;
-  $("#stage-title").textContent = stage?.title ?? "Belum ada hasil";
-  $("#stage-note").textContent = stage?.note ?? "";
-  $("#previous").disabled = !stage || step === 0;
-  $("#next").disabled = !stage || step === stages.length - 1;
-  for (const id of ["play", "copy-step", "format"]) $("#" + id).disabled = !stage;
+  $("#step-count").textContent = operation ? `OPERASI ${pad(operationIndex + 1)} / ${operations.length}` : "BELUM DIJALANKAN";
+  $("#phase").textContent = operation?.group ?? "DES";
+  $("#operation-title").textContent = operation?.title ?? "Belum ada operasi";
+  $("#previous").disabled = !operation || operationIndex === 0;
+  $("#next").disabled = !operation || operationIndex === operations.length - 1;
+  for (const id of ["play", "replay", "speed", "speed-slider", "copy-step", "format"]) $("#" + id).disabled = !operation;
   $("#copy-result").disabled = $("#reverse").disabled = !trace?.output;
   output.value = trace?.output ?? "";
   $("#copy-feedback").textContent = "";
-  draw(stage);
-  const walkthrough = $("#walkthrough");
-  const lesson = stage?.walkthrough ?? [["Panduan DES", "Klik Muat contoh untuk menelusuri enkripsi dengan pesan dan kunci bawaan."]];
-  walkthrough.replaceChildren(...lesson.map(([heading, text]) => {
-    const section = element("section", undefined, "lesson");
-    section.append(element("h4", heading), element("p", text));
-    return section;
-  }));
-  renderValues();
+
+  activeButton?.removeAttribute("aria-current");
+  activeButton = operation?.button;
+  if (activeButton) {
+    activeButton.setAttribute("aria-current", "step");
+    const viewport = chain.parentElement;
+    const bounds = viewport.getBoundingClientRect();
+    const node = activeButton.getBoundingClientRect();
+    if (node.top < bounds.top + 8) viewport.scrollTop += node.top - bounds.top - 8;
+    else if (node.bottom > bounds.bottom - 8) viewport.scrollTop += node.bottom - bounds.bottom + 8;
+  }
+
+  paintFrame = drawOperation(operation);
+  if (stage !== renderedStage) {
+    renderedStage = stage;
+    $("#stage-title").textContent = stage?.title ?? "Belum ada hasil";
+    $("#stage-note").textContent = stage?.note ?? "";
+    const lesson = stage?.walkthrough ?? [["Mulai dengan contoh", "Klik Muat contoh untuk memakai pesan dan kunci bawaan."]];
+    $("#walkthrough").replaceChildren(...lesson.map(([heading, text]) => {
+      const section = element("section", undefined, "lesson");
+      section.append(element("h5", heading), element("p", text));
+      return section;
+    }));
+    renderValues();
+  }
+  if (operation?.table && operation.table !== lastTable) tablePicker.value = operation.table;
+  lastTable = operation?.table;
   renderTable();
-  for (const pane of document.querySelectorAll(".detail-pane")) pane.scrollTop = 0;
 }
 
 const mode = () => form.elements.mode.value;
@@ -176,12 +279,14 @@ function invalidate(message) {
   version++;
   pause();
   trace = null;
-  step = 0;
+  operationIndex = 0;
+  elapsed = 0;
+  buildDiagram([]);
   labels();
   block.removeAttribute("aria-invalid");
   key.removeAttribute("aria-invalid");
   status(message ?? (mode() === "decrypt" ? "Tempel teks sandi Base64 dan masukkan kunci enkripsinya." :
-    "Masukkan 1 hingga 8 byte UTF-8. Jika kurang dari 8 byte, aplikasi menambahkan byte nol di akhir."));
+    "Masukkan 1 hingga 8 byte UTF-8. Aplikasi menambahkan byte nol hingga blok berisi 8 byte."));
   render();
 }
 
@@ -220,38 +325,74 @@ async function runTrace(example = false) {
       }));
     }
     trace = data;
+    tablePicker.value = "IP";
+    buildDiagram(data.groups);
     status(data.status, !data.output);
     render();
+    paintFrame?.(1);
   } catch {
     if (version === requestVersion) status("Hasil tidak bisa dimuat. Pastikan server Python berjalan.", true);
   }
 }
 
 function pause() {
-  if (timer !== null) clearInterval(timer);
-  timer = null;
-  $("#play").textContent = "Putar";
+  if (frameId !== null) cancelAnimationFrame(frameId);
+  frameId = null;
+  lastFrame = null;
+  $("#play").textContent = "Putar semua";
 }
 
 function goTo(index) {
-  if (!trace || index < 0 || index >= stages.length) return;
+  if (index < 0 || index >= operations.length) return;
   pause();
-  step = index;
+  operationIndex = index;
   render();
+  elapsed = 0;
+  animate(false);
+}
+
+function tick(timestamp) {
+  const operation = activeOperation();
+  const duration = operation.kind === "sboxes" ? 2050 : 1350;
+  if (lastFrame !== null) elapsed += ((timestamp - lastFrame) / duration) * playbackRate;
+  lastFrame = timestamp;
+  paintFrame(reducedMotion.matches ? 1 : Math.min(1, elapsed));
+  if (elapsed >= (sequence ? 1.15 : 1)) {
+    if (!sequence || operationIndex === operations.length - 1) {
+      pause();
+      return;
+    }
+    elapsed = 0;
+    operationIndex++;
+    render();
+    paintFrame(reducedMotion.matches ? 1 : 0);
+  }
+  frameId = requestAnimationFrame(tick);
+}
+
+function animate(all) {
+  sequence = all;
+  lastFrame = null;
+  paintFrame(reducedMotion.matches ? 1 : Math.min(1, elapsed));
+  if (reducedMotion.matches && !all) {
+    elapsed = 1;
+    return;
+  }
+  $("#play").textContent = "Jeda";
+  frameId = requestAnimationFrame(tick);
 }
 
 function play() {
-  if (timer !== null) {
+  if (frameId !== null) {
     pause();
     return;
   }
-  if (step === stages.length - 1) goTo(0);
-  $("#play").textContent = "Jeda";
-  timer = setInterval(() => {
-    step++;
+  if (operationIndex === operations.length - 1 && elapsed >= 1) {
+    operationIndex = 0;
     render();
-    if (step === stages.length - 1) pause();
-  }, 850);
+  }
+  if (elapsed >= 1) elapsed = 0;
+  animate(true);
 }
 
 async function copy(text, description) {
@@ -269,27 +410,6 @@ async function copy(text, description) {
   }
 }
 
-function selectTab(tab) {
-  for (const item of tabs) {
-    item.setAttribute("aria-selected", String(item === tab));
-    item.tabIndex = item === tab ? 0 : -1;
-    document.getElementById(item.getAttribute("aria-controls")).hidden = item !== tab;
-  }
-}
-
-tabs.forEach((tab, i) => {
-  tab.addEventListener("click", () => selectTab(tab));
-  tab.addEventListener("keydown", (event) => {
-    const choices = {ArrowLeft: (i + tabs.length - 1) % tabs.length, ArrowRight: (i + 1) % tabs.length,
-      Home: 0, End: tabs.length - 1};
-    if (!Object.hasOwn(choices, event.key)) return;
-    event.preventDefault();
-    const next = tabs[choices[event.key]];
-    selectTab(next);
-    next.focus();
-  });
-});
-
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   runTrace();
@@ -303,9 +423,32 @@ $("#reverse").addEventListener("click", () => {
   form.elements.mode.value = mode() === "decrypt" ? "encrypt" : "decrypt";
   runTrace();
 });
-$("#previous").addEventListener("click", () => goTo(step - 1));
-$("#next").addEventListener("click", () => goTo(step + 1));
+$("#previous").addEventListener("click", () => goTo(operationIndex - 1));
+$("#next").addEventListener("click", () => goTo(operationIndex + 1));
 $("#play").addEventListener("click", play);
+$("#replay").addEventListener("click", () => goTo(operationIndex));
+speedSlider.addEventListener("input", () => {
+  playbackRate = Number((10 ** Number(speedSlider.value)).toPrecision(3));
+  speed.value = String(playbackRate).replace(".", ",");
+  speed.removeAttribute("aria-invalid");
+  speedSlider.setAttribute("aria-valuetext", `${speed.value} kali`);
+});
+speed.addEventListener("input", () => {
+  const value = speed.value.trim().replace(",", ".");
+  const rate = Number(value);
+  if (!/^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value) || !Number.isFinite(rate) || rate <= 0) {
+    speed.setAttribute("aria-invalid", "true");
+    return;
+  }
+  playbackRate = rate;
+  speed.removeAttribute("aria-invalid");
+  speedSlider.value = Math.log10(rate);
+  speedSlider.setAttribute("aria-valuetext", `${String(rate).replace(".", ",")} kali`);
+});
+speed.addEventListener("blur", () => {
+  speed.value = String(playbackRate).replace(".", ",");
+  speed.removeAttribute("aria-invalid");
+});
 $("#format").addEventListener("click", () => {
   binary = !binary;
   renderValues();
@@ -316,7 +459,10 @@ $("#copy-table").addEventListener("click", () => copy(
   [...$("#table-content").children].map((item) => item.textContent).join("\n\n"), "Tabel"));
 $("#copy-step").addEventListener("click", () => {
   const stage = activeStage();
+  const operation = activeOperation();
   const report = [stage.title, stage.note, "\nPanduan", ...stage.walkthrough.map((item) => item.join("\n")),
+    `\nOperasi: ${operation.title}`, ...[...operation.inputs, ...operation.outputs].map((item) =>
+      `${item.label}: ${binary && item.binary ? bitString(item.binary) : showValue(item)}`),
     "\nDiagram (heks)", ...stage.flow.map((item) => item.join(": ")), `\nNilai (${binary ? "biner" : "heks"})`,
     ...stage.values.map((row) => `${row.label} (${row.bits} bit): ${binary ? bitString(row.binary) : row.hex}`)];
   copy(report.join("\n"), "Tahap");

@@ -14,7 +14,7 @@
       <div>
         <div class="kicker brand"><span class="chip" aria-hidden="true">&#9638;</span> LAB KRIPTOGRAFI <span class="muted">/ 01</span></div>
         <h1>Visualisasi DES</h1>
-        <p>Lihat cara DES mengenkripsi atau mendekripsi satu blok data.</p>
+        <p>Telusuri enkripsi dan dekripsi DES dari bit masukan hingga hasil.</p>
       </div>
       <div class="specs" aria-label="DES memakai blok 64 bit dan 16 putaran">
         <div><strong>64</strong><span>BIT PER BLOK</span></div>
@@ -59,66 +59,78 @@
         <span class="counter" id="step-count">BELUM DIJALANKAN</span>
       </div>
       <nav id="timeline" aria-label="Tahap DES"></nav>
+      <div class="transport panel" aria-label="Kontrol animasi">
+        <div class="actions">
+          <button type="button" id="previous" disabled>&larr; Sebelumnya</button>
+          <button type="button" class="primary" id="play" disabled>Putar semua</button>
+          <button type="button" id="next" disabled>Berikutnya &rarr;</button>
+          <button type="button" id="replay" disabled>Ulangi operasi</button>
+          <div class="speed">
+            <label for="speed">Kecepatan</label>
+            <input id="speed-slider" type="range" min="-2" max="2" step="0.01" value="0"
+              aria-label="Kecepatan animasi" aria-valuetext="1 kali" disabled>
+            <input id="speed" type="text" inputmode="decimal" value="1" autocomplete="off"
+              aria-label="Pengali kecepatan animasi" title="Masukkan angka positif, misalnya 1,25." disabled>
+            <span aria-hidden="true">&times;</span>
+          </div>
+        </div>
+        <span class="phase" id="phase">DES</span>
+      </div>
       <div class="workbench">
-        <section class="panel flow" aria-labelledby="stage-title">
-          <div class="panel-bar flow-bar">
-            <span class="kicker">ALUR DATA <span class="muted">(HEKS)</span></span>
-            <span class="phase" id="phase">DES</span>
+        <section class="panel flow" aria-labelledby="diagram-title">
+          <h3 id="diagram-title">Urutan operasi</h3>
+          <p class="muted">Pilih operasi untuk melihat animasinya.</p>
+          <div class="diagram" tabindex="0" aria-label="Urutan operasi DES">
+            <ol id="operation-chain"></ol>
+            <p id="empty-chain">Klik Jalankan untuk menampilkan urutan operasi.</p>
           </div>
-          <h3 id="stage-title">Belum ada hasil</h3>
-          <div class="diagram">
-            <svg id="flow" viewBox="0 0 560 280" role="img" aria-labelledby="flow-caption">
-              <title id="flow-caption">Alur data DES</title>
-              <defs>
-                <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
-                  <path d="M 0,0 L 8,4 L 0,8 Z" fill="#a1b8ce"></path>
-                </marker>
-              </defs>
-              <g id="signals"></g>
-            </svg>
-          </div>
-          <p id="stage-note"></p>
         </section>
 
-        <section class="panel details" aria-label="Rincian tahap">
-          <div class="tabs" role="tablist" aria-label="Tampilan rincian">
-            <button type="button" id="tab-walkthrough" role="tab" aria-controls="walkthrough" aria-selected="true">Panduan</button>
-            <button type="button" id="tab-values" role="tab" aria-controls="values" aria-selected="false" tabindex="-1">Nilai</button>
-            <button type="button" id="tab-tables" role="tab" aria-controls="tables" aria-selected="false" tabindex="-1">Tabel</button>
-          </div>
-          <div class="detail-pane" role="tabpanel" id="walkthrough" tabindex="0" aria-labelledby="tab-walkthrough"></div>
-          <div class="detail-pane" role="tabpanel" id="values" tabindex="0" aria-labelledby="tab-values" hidden>
-            <div class="detail-bar">
-              <span class="kicker">NILAI TAHAP</span>
-              <button type="button" id="format" aria-pressed="false">Tampilkan biner</button>
-            </div>
-            <dl id="value-list"></dl>
-          </div>
-          <div class="detail-pane" role="tabpanel" id="tables" tabindex="0" aria-labelledby="tab-tables" hidden>
-            <div class="detail-bar">
-              <select id="table-picker" aria-label="Tabel acuan DES"></select>
-              <button type="button" id="copy-table" disabled>Salin tabel</button>
-            </div>
-            <div id="table-content"></div>
-          </div>
+        <section class="panel flow animation" aria-labelledby="operation-title">
+          <div class="panel-bar"><span class="kicker">ANIMASI</span></div>
+          <h3 id="operation-title">Belum ada operasi</h3>
+          <div id="operation-view"></div>
+          <p id="operation-annotation" class="annotation"></p>
+          <progress id="operation-progress" aria-label="Progres operasi" max="1" value="0"></progress>
         </section>
       </div>
 
-      <div class="transport">
-        <div class="actions">
-          <button type="button" id="previous" disabled>&larr; Sebelumnya</button>
-          <button type="button" id="play" disabled>Putar</button>
-          <button type="button" id="next" disabled>Berikutnya &rarr;</button>
+      <div class="panel details" aria-labelledby="stage-title">
+        <div class="panel-bar">
+          <h3 id="stage-title">Belum ada hasil</h3>
           <button type="button" id="copy-step" disabled>Salin tahap</button>
         </div>
+        <p id="stage-note"></p>
         <span class="copy-feedback" id="copy-feedback" role="status"></span>
+        <div class="detail-grid">
+          <section class="detail-pane" aria-labelledby="guide-title">
+            <h4 class="kicker" id="guide-title">PANDUAN</h4>
+            <div id="walkthrough"></div>
+          </section>
+          <div class="detail-side">
+            <section class="detail-pane" aria-labelledby="values-title">
+              <div class="detail-bar">
+                <h4 class="kicker" id="values-title">NILAI TAHAP</h4>
+                <button type="button" id="format" aria-pressed="false">Tampilkan biner</button>
+              </div>
+              <dl id="value-list"></dl>
+            </section>
+            <section class="detail-pane" aria-label="Tabel acuan DES">
+              <div class="detail-bar">
+                <select id="table-picker" aria-label="Tabel acuan DES"></select>
+                <button type="button" id="copy-table" disabled>Salin tabel</button>
+              </div>
+              <div id="table-content"></div>
+            </section>
+          </div>
+        </div>
       </div>
     </section>
   </main>
 
   <dialog id="copy-dialog" aria-labelledby="copy-title">
     <h2 id="copy-title">Salin teks</h2>
-    <p>Penyalinan otomatis gagal. Salin teks yang sudah dipilih di bawah ini.</p>
+    <p>Salin teks yang disorot di bawah ini.</p>
     <textarea id="manual-copy" readonly rows="8" aria-label="Teks untuk disalin"></textarea>
     <form method="dialog"><button type="submit">Tutup</button></form>
   </dialog>

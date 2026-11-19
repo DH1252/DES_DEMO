@@ -22,7 +22,7 @@ def describe_table(
 ) -> tuple[str, str, str]:
     """Return instructions, the full table, and a worked example from the trace."""
     r = trace.rounds[step - 1] if trace and 1 <= step <= len(trace.rounds) else None
-    example = ("Pilih putaran 01 sampai 16 untuk melihat contohnya." if trace
+    example = ("Pilih salah satu putaran (01 hingga 16) untuk melihat contohnya." if trace
                else "Klik Jalankan untuk melihat contoh perhitungan.")
 
     if name in PERMUTATIONS:
