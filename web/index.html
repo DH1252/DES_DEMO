@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Ikuti enkripsi dan dekripsi DES untuk satu blok data.">
+  <title>Visualisasi DES | Lab Kriptografi</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <div class="kicker brand"><span class="chip" aria-hidden="true">&#9638;</span> LAB KRIPTOGRAFI <span class="muted">/ 01</span></div>
+        <h1>Visualisasi DES</h1>
+        <p>Lihat cara DES mengenkripsi atau mendekripsi satu blok data.</p>
+      </div>
+      <div class="specs" aria-label="DES memakai blok 64 bit dan 16 putaran">
+        <div><strong>64</strong><span>BIT PER BLOK</span></div>
+        <div><strong>16</strong><span>PUTARAN</span></div>
+      </div>
+    </header>
+
+    <noscript><p class="panel noscript">Aktifkan JavaScript untuk menjalankan demo DES di peramban ini.</p></noscript>
+    <form class="panel console" id="trace-form" autocomplete="off">
+      <div class="panel-bar">
+        <h2 class="kicker"><span class="section-no">01</span> BLOK DAN KUNCI</h2>
+        <fieldset class="mode" aria-label="Mode DES">
+          <label><input type="radio" name="mode" value="encrypt" checked><span>Enkripsi</span></label>
+          <label><input type="radio" name="mode" value="decrypt"><span>Dekripsi</span></label>
+        </fieldset>
+      </div>
+      <div class="fields">
+        <label for="block"><span id="block-label">Teks asli (UTF-8)</span>
+          <input type="text" id="block" maxlength="200" spellcheck="false" aria-describedby="status">
+        </label>
+        <label for="key"><span>Kunci DES</span> <small>8 byte UTF-8</small>
+          <input type="text" id="key" maxlength="200" spellcheck="false" aria-describedby="status">
+        </label>
+        <label for="output"><span id="output-label">Teks sandi (Base64)</span>
+          <input id="output" class="result" readonly>
+        </label>
+        <button class="primary run" type="submit">Jalankan <span aria-hidden="true">&rarr;</span></button>
+      </div>
+      <div class="console-bottom">
+        <p id="status" role="status">Memuat contoh...</p>
+        <div class="actions">
+          <button type="button" id="example">Muat contoh</button>
+          <button type="button" id="copy-result" disabled>Salin hasil</button>
+          <button type="button" id="reverse" disabled>Balik proses</button>
+        </div>
+      </div>
+    </form>
+
+    <section class="trace" aria-labelledby="trace-title">
+      <div class="panel-bar trace-bar">
+        <h2 class="kicker" id="trace-title"><span class="section-no">02</span> TAHAP DES</h2>
+        <span class="counter" id="step-count">BELUM DIJALANKAN</span>
+      </div>
+      <nav id="timeline" aria-label="Tahap DES"></nav>
+      <div class="workbench">
+        <section class="panel flow" aria-labelledby="stage-title">
+          <div class="panel-bar flow-bar">
+            <span class="kicker">ALUR DATA <span class="muted">(HEKS)</span></span>
+            <span class="phase" id="phase">DES</span>
+          </div>
+          <h3 id="stage-title">Belum ada hasil</h3>
+          <div class="diagram">
+            <svg id="flow" viewBox="0 0 560 280" role="img" aria-labelledby="flow-caption">
+              <title id="flow-caption">Alur data DES</title>
+              <defs>
+                <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+                  <path d="M 0,0 L 8,4 L 0,8 Z" fill="#a1b8ce"></path>
+                </marker>
+              </defs>
+              <g id="signals"></g>
+            </svg>
+          </div>
+          <p id="stage-note"></p>
+        </section>
+
+        <section class="panel details" aria-label="Rincian tahap">
+          <div class="tabs" role="tablist" aria-label="Tampilan rincian">
+            <button type="button" id="tab-walkthrough" role="tab" aria-controls="walkthrough" aria-selected="true">Panduan</button>
+            <button type="button" id="tab-values" role="tab" aria-controls="values" aria-selected="false" tabindex="-1">Nilai</button>
+            <button type="button" id="tab-tables" role="tab" aria-controls="tables" aria-selected="false" tabindex="-1">Tabel</button>
+          </div>
+          <div class="detail-pane" role="tabpanel" id="walkthrough" tabindex="0" aria-labelledby="tab-walkthrough"></div>
+          <div class="detail-pane" role="tabpanel" id="values" tabindex="0" aria-labelledby="tab-values" hidden>
+            <div class="detail-bar">
+              <span class="kicker">NILAI TAHAP</span>
+              <button type="button" id="format" aria-pressed="false">Tampilkan biner</button>
+            </div>
+            <dl id="value-list"></dl>
+          </div>
+          <div class="detail-pane" role="tabpanel" id="tables" tabindex="0" aria-labelledby="tab-tables" hidden>
+            <div class="detail-bar">
+              <select id="table-picker" aria-label="Tabel acuan DES"></select>
+              <button type="button" id="copy-table" disabled>Salin tabel</button>
+            </div>
+            <div id="table-content"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="transport">
+        <div class="actions">
+          <button type="button" id="previous" disabled>&larr; Sebelumnya</button>
+          <button type="button" id="play" disabled>Putar</button>
+          <button type="button" id="next" disabled>Berikutnya &rarr;</button>
+          <button type="button" id="copy-step" disabled>Salin tahap</button>
+        </div>
+        <span class="copy-feedback" id="copy-feedback" role="status"></span>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="copy-dialog" aria-labelledby="copy-title">
+    <h2 id="copy-title">Salin teks</h2>
+    <p>Penyalinan otomatis gagal. Salin teks yang sudah dipilih di bawah ini.</p>
+    <textarea id="manual-copy" readonly rows="8" aria-label="Teks untuk disalin"></textarea>
+    <form method="dialog"><button type="submit">Tutup</button></form>
+  </dialog>
+</body>
+</html>
