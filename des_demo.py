@@ -284,10 +284,11 @@ class DemoHandler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default="127.0.0.1", help="alamat server (bawaan: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="port HTTP lokal (bawaan: 8000)")
     args = parser.parse_args()
-    with ThreadingHTTPServer(("127.0.0.1", args.port), DemoHandler) as server:
-        print(f"Visualisasi DES: http://127.0.0.1:{server.server_port}", flush=True)
+    with ThreadingHTTPServer((args.host, args.port), DemoHandler) as server:
+        print(f"Visualisasi DES: http://{args.host}:{server.server_port}", flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

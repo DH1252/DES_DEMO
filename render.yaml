@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: des-demo
+    runtime: python
+    plan: free
+    buildCommand: 'true'
+    startCommand: 'python3 des_demo.py --host 0.0.0.0 --port "$PORT"'
+    healthCheckPath: /
