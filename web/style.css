@@ -71,6 +71,38 @@ button.primary:not(:disabled):hover { background: #a0f4df; color: var(--bg); }
 .workbench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: .75rem; align-items: start; }
 .flow h3 { font-size: clamp(1.25rem, 2.8vw, 1.8rem); letter-spacing: -.025em; }
 .flow > p { font-size: .83rem; }
+.diagram-header { flex-wrap: wrap; margin-bottom: .25rem; }
+#diagram-rounds[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); }
+.diagram-operation:not(:empty) { margin-top: .5rem; font-weight: 650; color: var(--ink); }
+.diagram-legend { display: flex; flex-wrap: wrap; gap: .2rem .8rem; padding: 0; margin: .25rem 0 0; list-style: none; color: var(--muted); font-size: .72rem; }
+.diagram-legend li::before { content: ""; display: inline-block; width: .6rem; height: .6rem; margin-right: .22rem; border-radius: 2px; background: var(--swatch); }
+.legend-operation { --swatch: #d6b7fc; }
+.legend-input { --swatch: #ffd78e; }
+.legend-result { --swatch: #a0e5d2; }
+.feistel-viewport { max-height: 46rem; overflow: auto; margin-top: .65rem; background: #fcfaff; border: 2px solid #9671e0; border-radius: 4px; }
+#feistel-diagram { display: block; width: 100%; max-width: 416px; height: auto; margin: 0 auto; }
+#empty-diagram { padding: .75rem; color: #41374e; font-size: .83rem; }
+.feistel-wire { fill: none; stroke: #41374e; stroke-width: 1.2; }
+.feistel-dash { stroke-dasharray: 4 4; }
+.feistel-shape { fill: #fcfaff; stroke: #41374e; stroke-width: 1.2; }
+.feistel-key { fill: #f2eafd; }
+.feistel-hit { fill: transparent; }
+.feistel-junction { fill: #fcfaff; stroke: #41374e; stroke-width: 1.2; }
+.feistel-label { fill: #231a30; text-anchor: middle; font: 650 14px/1 system-ui, sans-serif; }
+.feistel-value, .feistel-round-number { fill: #584563; font: 12px/1 var(--mono); }
+.feistel-value { text-anchor: middle; }
+.feistel-schedule-key { font-weight: 700; }
+.feistel-schedule-result { fill: #08725a; }
+.feistel-round-number { font-size: 11px; }
+.feistel-target { cursor: pointer; }
+.feistel-target:hover .feistel-shape, .feistel-target:focus-visible .feistel-shape { stroke-width: 2; }
+.feistel-target[data-highlight="operation"] .feistel-shape { fill: #e5d1ff; stroke: #6632b4; stroke-width: 2.3; }
+.feistel-target[data-highlight="input"] .feistel-shape { fill: #fff0cc; stroke: #885600; stroke-width: 2; }
+.feistel-target[data-highlight="result"] .feistel-shape { fill: #d0f3e9; stroke: #08725a; stroke-width: 2; }
+.feistel-wire[data-highlight="signal"] { stroke: #6632b4; stroke-width: 2.3; }
+.feistel-wire[data-highlight="signal"][marker-end] { marker-end: url(#feistel-signal-arrow); }
+.operation-browser { margin-top: .9rem; padding-top: .65rem; border-top: 1px solid var(--edge); }
+.operation-browser summary { width: fit-content; color: var(--blue); cursor: pointer; font-size: .83rem; font-weight: 650; }
 .diagram { max-height: 29rem; overflow: auto; overscroll-behavior: contain; scrollbar-color: var(--edge) var(--board); background: var(--board) radial-gradient(#2d4155 1px, transparent 1px) 0 0 / 16px 16px; border: 1px solid var(--edge); border-radius: 6px; margin-top: .65rem; padding: .7rem; }
 #empty-chain { color: var(--muted); font-size: .83rem; }
 #operation-chain, .operation-list { list-style: none; margin: 0; padding: 0; }

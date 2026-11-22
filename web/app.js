@@ -11,6 +11,8 @@ const speedSlider = $("#speed-slider");
 const pad = (n) => String(n).padStart(2, "0");
 const stages = ["IP", ...Array.from({length: 16}, (_, i) => pad(i + 1)), "FP"];
 const chain = $("#operation-chain");
+const feistel = $("#feistel-diagram");
+const roundToggle = $("#diagram-rounds");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 let trace = null;
@@ -28,6 +30,9 @@ let elapsed = 0;
 let playbackRate = 1;
 let sequence = false;
 let paintFrame = null;
+let diagramHighlights = new Map();
+let highlightedNodes = new Map();
+let updateScheduleLabel = null;
 
 function element(tag, text, className) {
   const item = document.createElement(tag);
@@ -67,6 +72,254 @@ function buildDiagram(groups) {
     }
     chain.append(section);
   }
+  drawFeistel();
+}
+
+function drawFeistel() {
+  const flow = $("#feistel-flow");
+  flow.replaceChildren();
+  diagramHighlights = new Map();
+  highlightedNodes = new Map();
+  updateScheduleLabel = null;
+  const ready = operations.length > 0;
+  feistel.toggleAttribute("hidden", !ready);
+  $("#empty-diagram").hidden = ready;
+  $("#diagram-legend").hidden = !ready;
+  roundToggle.disabled = !ready;
+  feistel.parentElement.scrollTop = 0;
+  if (!ready) return;
+
+  const full = roundToggle.getAttribute("aria-pressed") === "true";
+  const left = 116, right = 284, center = 200, boxHeight = 38, pitch = 112;
+  const atStage = (stage) => operations.filter((item) => item.stage === stage);
+  const lastStage = stages.length - 1;
+  const ip = operations.find((item) => item.table === "IP");
+  const fp = operations.find((item) => item.table === "FP");
+  const split = operations[operations.indexOf(ip) + 1];
+  const swap = atStage(lastStage)[0];
+  const preparation = operations.slice(0, operations.indexOf(ip));
+  const schedule = operations.slice(operations.indexOf(split) + 1, operations.findIndex((item) => item.stage === 1));
+  const conversion = atStage(lastStage).slice(2);
+  const states = new Map();
+
+  function svg(tag, attributes, text, parent = flow) {
+    const node = document.createElementNS(feistel.namespaceURI, tag);
+    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+    if (text !== undefined) node.textContent = text;
+    parent.append(node);
+    return node;
+  }
+
+  const label = (x, y, text, cls, parent) => svg("text", {x, y, class: cls}, text, parent);
+  const wire = (d, arrow = true, dashed = false) => svg("path", {d, class: `feistel-wire${dashed ? " feistel-dash" : ""}`,
+    ...(arrow ? {"marker-end": "url(#feistel-arrow)"} : {})});
+  const subscript = (value) => value.replace(/\d/g, (digit) => "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089"[digit]);
+
+  function mark(node, role, ...items) {
+    for (const operation of items) {
+      if (!diagramHighlights.has(operation)) diagramHighlights.set(operation, new Map());
+      diagramHighlights.get(operation).set(node, role);
+    }
+  }
+
+  function target(title, activate) {
+    const node = svg("g", {role: "button", tabindex: 0, "aria-label": title, class: "feistel-target"});
+    svg("title", {}, title, node);
+    node.addEventListener("click", activate);
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activate();
+      }
+    });
+    return node;
+  }
+
+  function operationNode(operation, title) {
+    return target(title, () => goTo(operations.indexOf(operation)));
+  }
+
+  function box(x, y, title, value, operation, width = 154) {
+    const node = operationNode(operation, value ? `${title}: ${value}` : title);
+    svg("rect", {x: x - width / 2, y, width, height: value ? boxHeight : 24, rx: value ? 1 : 12, class: "feistel-shape"}, undefined, node);
+    label(x, y + (value ? 15 : 16), title, "feistel-label", node);
+    if (value) label(x, y + 30, value, "feistel-value", node);
+    return node;
+  }
+
+  function gate(x, y, symbol, operation, title) {
+    const node = operationNode(operation, title);
+    svg("circle", {cx: x, cy: y, r: 15, class: "feistel-hit"}, undefined, node);
+    svg("circle", {cx: x, cy: y, r: 9, class: "feistel-shape"}, undefined, node);
+    label(x, y + 4, symbol, "feistel-label", node);
+    return node;
+  }
+
+  function stateBox(x, y, title, operation, value = operation.outputs[0]) {
+    const node = box(x, y, title, showValue(value), operation);
+    states.set(value.label, node);
+    mark(node, "result", operation);
+  }
+
+  // Round arrows leave the R junction and XOR gate; the crossing has no junction.
+  function round(n, y) {
+    const ops = atStage(n);
+    const expand = ops.find((item) => item.table === "E");
+    const substitute = ops.find((item) => item.kind === "sboxes");
+    const permute = ops.find((item) => item.table === "P");
+    const [keyXor, leftXor] = ops.filter((item) => item.kind === "xor");
+    const copyRight = ops.at(-1);
+    const keyValue = keyXor.inputs[1];
+    const k = subscript(String(Number(keyValue.label.slice(1))));
+    const i = subscript(String(n - 1)), j = subscript(String(n));
+    const gateY = y + 72, next = y + pitch;
+    const final = n === lastStage - 1;
+
+    mark(wire(`M${left} ${y + boxHeight}V${gateY - 9}`), "signal", leftXor);
+    mark(wire(`M${right} ${y + boxHeight}V${gateY}`, false), "signal", expand, copyRight);
+    mark(wire(`M${right} ${gateY}H${center + 9}`), "signal", expand);
+    mark(wire(`M${center - 9} ${gateY}H${left + 9}`), "signal", permute, leftXor);
+    mark(wire(`M371 ${y + 51}H${center}V${gateY - 9}`), "signal", keyXor);
+    for (const [from, to, start, operation] of [[left, final ? left : right, gateY + 9, leftXor],
+      [right, final ? right : left, gateY, copyRight]]) {
+      mark(wire(`M${from} ${start}V${y + 86}L${to} ${next - 7}V${next}`), "signal", operation);
+    }
+    svg("circle", {cx: right, cy: gateY, r: 2.7, class: "feistel-junction"});
+    label(8, y + 70, `#${pad(n)}`, "feistel-round-number");
+
+    const keyNode = operationNode(keyXor, `${keyValue.label}: ${showValue(keyValue)}`);
+    svg("rect", {x: 371, y: y + 40, width: 37, height: 22, rx: 3, class: "feistel-shape feistel-key"}, undefined, keyNode);
+    label(389.5, y + 55, `K${k}`, "feistel-label", keyNode);
+    mark(keyNode, "input", keyXor);
+    mark(keyNode, "result", ...schedule.filter((item) => item.reference_stage === n && item.table === "PC-2"));
+    mark(gate(left, gateY, "\u2295", leftXor, leftXor.title), "operation", leftXor);
+    const functionGate = gate(center, gateY, "f", expand, `Fungsi Feistel putaran ${n}`);
+    mark(functionGate, "operation", expand, keyXor, substitute, permute);
+    mark(functionGate, "input", leftXor);
+    mark(states.get(expand.inputs[0].label), "input", expand, copyRight);
+    mark(states.get(leftXor.inputs[0].label), "input", leftXor);
+
+    const l = [`L${j} = R${i}`, copyRight];
+    const r = [`R${j} = L${i} \u2295 f(R${i}, K${k})`, leftXor];
+    stateBox(left, next, ...(final ? r : l));
+    stateBox(right, next, ...(final ? l : r));
+    return next;
+  }
+
+  const inputBlock = box(center, 12, "Blok masukan", showValue(ip.inputs[0]), operations[0], 174);
+  mark(inputBlock, "operation", ...preparation);
+  mark(inputBlock, "input", ip);
+  mark(wire(`M${center} 50V64`), "signal", ip);
+  const ipBox = box(center, 64, "Permutasi awal (IP)", null, ip, 186);
+  mark(ipBox, "operation", ip);
+  mark(ipBox, "input", split);
+  let y = 190;
+  mark(wire(`M${center} 88V106H${left}V${y}`), "signal", split);
+  mark(wire(`M${center} 106H${right}V${y}`), "signal", split);
+  const fork = operationNode(split, split.title);
+  svg("circle", {cx: center, cy: 106, r: 10, class: "feistel-hit"}, undefined, fork);
+  svg("circle", {cx: center, cy: 106, r: 3.4, class: "feistel-shape"}, undefined, fork);
+  mark(fork, "operation", split);
+  const keyX = 352, keyWidth = 104;
+  label(keyX, 14, "Jadwal kunci", "feistel-label");
+  const steps = [
+    ["UTF-8", [schedule[0]]],
+    ["PC-1", [schedule[1]]],
+    ["Bagi C dan D", [schedule[2]]],
+    ["Rotasi C/D", schedule.filter((item) => item.table === "Shifts")],
+    ["PC-2", schedule.filter((item) => item.table === "PC-2")],
+  ];
+  const scheduleNodes = steps.map(([title, items], i) => {
+    const top = 21 + i * 29;
+    const node = box(keyX, top, title, null, items[0], keyWidth);
+    mark(node, "operation", ...items);
+    if (i > 0) mark(wire(`M${keyX} ${top - 5}V${top}`), "signal", ...(i === 3 ? items.slice(0, 1) : items));
+    return node;
+  });
+  mark(scheduleNodes[0], "input", ...steps[1][1]);
+  mark(scheduleNodes[1], "input", ...steps[2][1]);
+  mark(scheduleNodes[2], "input", steps[3][1][0]);
+  mark(scheduleNodes[3], "input", ...steps[4][1]);
+  const subkeyLabel = label(keyX, 178, "", "feistel-value feistel-schedule-key");
+  updateScheduleLabel = (operation) => {
+    const name = operation?.outputs[0].label;
+    const isRotation = operation?.table === "Shifts";
+    const isSelection = operation?.table === "PC-2";
+    subkeyLabel.textContent = isRotation ? `Siapkan K${name.slice(1)}` : isSelection ? `Hasil: ${name}` : "";
+    subkeyLabel.classList.toggle("feistel-schedule-result", isSelection);
+  };
+
+  stateBox(left, y, "L\u2080", split, split.outputs[0]);
+  stateBox(right, y, "R\u2080", split, split.outputs[1]);
+  if (full) {
+    for (let n = 1; n < lastStage; n++) y = round(n, y);
+  } else {
+    y = round(2, round(1, y));
+    for (const x of [left, right]) wire(`M${x} ${y + boxHeight}V${y + 100}`, true, true);
+    const omitted = target("Tampilkan putaran 03 sampai 15", () => setExpanded(true));
+    mark(omitted, "operation", ...operations.filter((item) => item.stage >= 3 && item.stage <= 15));
+    svg("rect", {x: 137, y: y + 55, width: 126, height: 24, rx: 12, class: "feistel-shape"}, undefined, omitted);
+    label(center, y + 71, "Putaran 03\u201315", "feistel-label", omitted);
+    y += 100;
+    const round15 = atStage(15);
+    const copyRight = round15.at(-1);
+    const leftXor = round15.filter((item) => item.kind === "xor").at(-1);
+    stateBox(left, y, "L\u2081\u2085", copyRight);
+    stateBox(right, y, "R\u2081\u2085", leftXor);
+    y = round(16, y);
+  }
+
+  const joinY = y + 55;
+  mark(wire(`M${left} ${y + boxHeight}V${joinY}H${center}`, false), "signal", swap);
+  mark(wire(`M${right} ${y + boxHeight}V${joinY}H${center}`, false), "signal", swap);
+  mark(wire(`M${center} ${joinY}V${y + 72}`), "signal", fp);
+  for (const value of swap.inputs) mark(states.get(value.label), "input", swap);
+  const junction = operationNode(swap, swap.title);
+  svg("circle", {cx: center, cy: joinY, r: 10, class: "feistel-hit"}, undefined, junction);
+  svg("circle", {cx: center, cy: joinY, r: 3.4, class: "feistel-shape"}, undefined, junction);
+  mark(junction, "operation", swap);
+  mark(junction, "input", fp);
+  mark(box(center, y + 72, "Permutasi akhir (FP)", null, fp, 186), "operation", fp);
+  mark(wire(`M${center} ${y + 96}V${y + 112}`), "signal", fp);
+  const result = box(center, y + 112, "Blok keluaran", showValue(fp.outputs[0]), operations.at(-1), 174);
+  mark(result, "result", fp);
+  mark(result, "operation", ...conversion);
+  feistel.setAttribute("viewBox", `0 0 416 ${y + 162}`);
+}
+
+function setExpanded(full) {
+  roundToggle.setAttribute("aria-pressed", String(full));
+  drawFeistel();
+  syncFeistel();
+  roundToggle.focus({preventScroll: true});
+}
+
+function syncFeistel() {
+  const operation = activeOperation();
+  $("#diagram-operation").textContent = operation?.title ?? "";
+  updateScheduleLabel?.(operation);
+  const next = diagramHighlights.get(operation) ?? new Map();
+  for (const node of highlightedNodes.keys()) {
+    node.removeAttribute("data-highlight");
+    node.removeAttribute("aria-current");
+  }
+  let primary;
+  for (const [node, role] of next) {
+    node.setAttribute("data-highlight", role);
+    if (role === "operation" || (!primary && role === "result")) primary = node;
+  }
+  highlightedNodes = next;
+  if (primary) {
+    primary.setAttribute("aria-current", "step");
+    keepVisible(feistel.parentElement, primary);
+  }
+}
+
+function keepVisible(viewport, item) {
+  const bounds = viewport.getBoundingClientRect();
+  const node = item.getBoundingClientRect();
+  if (node.top < bounds.top + 8) viewport.scrollTop += node.top - bounds.top - 8;
+  else if (node.bottom > bounds.bottom - 8) viewport.scrollTop += node.bottom - bounds.bottom + 8;
 }
 
 function drawOperation(operation) {
@@ -172,7 +425,8 @@ const stageButtons = stages.map((label, i) => {
   const button = element("button", label);
   button.type = "button";
   button.setAttribute("aria-label", label === "IP" ? "Permutasi awal (IP)" : label === "FP" ? "Permutasi akhir (FP)" : `Putaran ${label}`);
-  button.addEventListener("click", () => goTo(operations.findIndex((operation) => operation.stage === i)));
+  button.addEventListener("click", () => goTo(operations.findIndex((operation) =>
+    i === 0 || i === stages.length - 1 ? operation.table === label : operation.stage === i)));
   $("#timeline").append(button);
   return button;
 });
@@ -237,12 +491,13 @@ function render() {
   activeButton = operation?.button;
   if (activeButton) {
     activeButton.setAttribute("aria-current", "step");
-    const viewport = chain.parentElement;
-    const bounds = viewport.getBoundingClientRect();
-    const node = activeButton.getBoundingClientRect();
-    if (node.top < bounds.top + 8) viewport.scrollTop += node.top - bounds.top - 8;
-    else if (node.bottom > bounds.bottom - 8) viewport.scrollTop += node.bottom - bounds.bottom + 8;
+    if ($("#operation-browser").open) keepVisible(chain.parentElement, activeButton);
   }
+  if (operation?.stage >= 3 && operation.stage <= 15 && roundToggle.getAttribute("aria-pressed") === "false") {
+    roundToggle.setAttribute("aria-pressed", "true");
+    drawFeistel();
+  }
+  syncFeistel();
 
   paintFrame = drawOperation(operation);
   if (stage !== renderedStage) {
@@ -427,6 +682,10 @@ $("#previous").addEventListener("click", () => goTo(operationIndex - 1));
 $("#next").addEventListener("click", () => goTo(operationIndex + 1));
 $("#play").addEventListener("click", play);
 $("#replay").addEventListener("click", () => goTo(operationIndex));
+roundToggle.addEventListener("click", () => setExpanded(roundToggle.getAttribute("aria-pressed") !== "true"));
+$("#operation-browser").addEventListener("toggle", () => {
+  if ($("#operation-browser").open && activeButton) keepVisible(chain.parentElement, activeButton);
+});
 speedSlider.addEventListener("input", () => {
   playbackRate = Number((10 ** Number(speedSlider.value)).toPrecision(3));
   speed.value = String(playbackRate).replace(".", ",");

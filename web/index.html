@@ -78,11 +78,30 @@
       </div>
       <div class="workbench">
         <section class="panel flow" aria-labelledby="diagram-title">
-          <h3 id="diagram-title">Urutan operasi</h3>
-          <p class="muted">Pilih operasi untuk melihat animasinya.</p>
-          <div class="diagram" tabindex="0" aria-label="Urutan operasi DES">
-            <ol id="operation-chain"></ol>
-            <p id="empty-chain">Klik Jalankan untuk menampilkan urutan operasi.</p>
+          <div class="panel-bar diagram-header">
+            <h3 id="diagram-title">Diagram DES</h3>
+            <button type="button" id="diagram-rounds" aria-controls="feistel-diagram" aria-pressed="false" disabled>Semua 16 putaran</button>
+          </div>
+          <p class="muted">Pilih simpul untuk melihat animasinya. Nilai ditulis dalam heksadesimal.</p>
+          <p id="diagram-operation" class="diagram-operation"></p>
+          <ul class="diagram-legend" aria-label="Warna sorotan" id="diagram-legend" hidden>
+            <li class="legend-operation">Operasi dan jalur</li>
+            <li class="legend-input">Masukan</li>
+            <li class="legend-result">Hasil</li>
+          </ul>
+          <div class="feistel-viewport">
+            <svg id="feistel-diagram" viewBox="0 0 416 620" role="group" aria-labelledby="diagram-title" hidden>
+              <defs>
+                <marker id="feistel-arrow" viewBox="0 0 6 6" refX="5.5" refY="3" markerWidth="5" markerHeight="5" orient="auto">
+                  <path d="M0 0L6 3L0 6Z" fill="#41374e"></path>
+                </marker>
+                <marker id="feistel-signal-arrow" viewBox="0 0 6 6" refX="5.5" refY="3" markerWidth="5" markerHeight="5" orient="auto">
+                  <path d="M0 0L6 3L0 6Z" fill="#6632b4"></path>
+                </marker>
+              </defs>
+              <g id="feistel-flow"></g>
+            </svg>
+            <p id="empty-diagram">Klik Jalankan untuk menampilkan diagram.</p>
           </div>
         </section>
 
@@ -92,6 +111,13 @@
           <div id="operation-view"></div>
           <p id="operation-annotation" class="annotation"></p>
           <progress id="operation-progress" aria-label="Progres operasi" max="1" value="0"></progress>
+          <details id="operation-browser" class="operation-browser">
+            <summary>Daftar operasi</summary>
+            <div class="diagram" tabindex="0" aria-label="Urutan operasi DES">
+              <ol id="operation-chain"></ol>
+              <p id="empty-chain">Belum ada operasi.</p>
+            </div>
+          </details>
         </section>
       </div>
 
